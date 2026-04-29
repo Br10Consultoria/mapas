@@ -1,0 +1,89 @@
+version: "3.9"
+
+# Modo desenvolvimento: backend e frontend com hot reload
+# Uso: docker compose -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: netmap-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: netmap
+      POSTGRES_PASSWORD: netmap123
+      POSTGRES_DB: netmap
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netmap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: netmap-influxdb-dev
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: netmap123456
+      DOCKER_INFLUXDB_INIT_ORG: netmap
+      DOCKER_INFLUXDB_INIT_BUCKET: network_metrics
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: netmap-super-secret-token
+    volumes:
+      - influxdb_dev_data:/var/lib/influxdb2
+    ports:
+      - "8086:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: netmap-backend-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: netmap
+      POSTGRES_PASSWORD: netmap123
+      POSTGRES_DB: netmap
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: netmap-super-secret-token
+      INFLUXDB_ORG: netmap
+      INFLUXDB_BUCKET: network_metrics
+      DEBUG: "true"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    network_mode: host
+
+  frontend-dev:
+    image: node:22-alpine
+    container_name: netmap-frontend-dev
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install --legacy-peer-deps && npm run dev"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+volumes:
+  postgres_dev_data:
+  influxdb_dev_data:

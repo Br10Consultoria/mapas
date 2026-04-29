@@ -1,0 +1,91 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: netmap-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: netmap
+      POSTGRES_PASSWORD: netmap123
+      POSTGRES_DB: netmap
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netmap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── InfluxDB ────────────────────────────────────────────────────────────────
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: netmap-influxdb
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: netmap123456
+      DOCKER_INFLUXDB_INIT_ORG: netmap
+      DOCKER_INFLUXDB_INIT_BUCKET: network_metrics
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: netmap-super-secret-token
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    ports:
+      - "8086:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend (FastAPI) ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: netmap-backend
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: netmap
+      POSTGRES_PASSWORD: netmap123
+      POSTGRES_DB: netmap
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: netmap-super-secret-token
+      INFLUXDB_ORG: netmap
+      INFLUXDB_BUCKET: network_metrics
+      DEBUG: "false"
+      POLL_INTERVAL_STATUS: "30"
+      POLL_INTERVAL_INTERFACES: "60"
+      POLL_INTERVAL_DISCOVERY: "300"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    network_mode: host
+    # IMPORTANT: network_mode host allows SNMP/ICMP to reach real devices
+    # For production, use a dedicated network with proper routing
+
+  # ── Frontend (React + Nginx) ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: netmap-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  influxdb_data:

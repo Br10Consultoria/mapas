@@ -1,5 +1,6 @@
 """
 Serviço de autenticação: JWT + TOTP 2FA
+Usa bcrypt puro (sem passlib) para evitar incompatibilidades de versão.
 """
 import secrets
 import logging
@@ -7,8 +8,8 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 import pyotp
 import qrcode
 import qrcode.image.svg
@@ -26,23 +27,27 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
 REFRESH_TOKEN_EXPIRE_DAYS = settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 # ── Password ──────────────────────────────────────────────────────────────────
 
-def _pre_hash(password: str) -> str:
+def _pre_hash(password: str) -> bytes:
     """Pré-processa a senha com SHA-256 para evitar o limite de 72 bytes do bcrypt.
-    O resultado é uma string hex de 64 chars, segura para bcrypt."""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+    Retorna bytes prontos para o bcrypt."""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest().encode('utf-8')
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(_pre_hash(password))
+    """Gera hash bcrypt da senha. Retorna string para armazenar no banco."""
+    hashed = bcrypt.hashpw(_pre_hash(password), bcrypt.gensalt(rounds=12))
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(_pre_hash(plain), hashed)
+    """Verifica se a senha plain corresponde ao hash armazenado."""
+    try:
+        return bcrypt.checkpw(_pre_hash(plain), hashed.encode('utf-8'))
+    except Exception:
+        return False
 
 
 # ── JWT ───────────────────────────────────────────────────────────────────────

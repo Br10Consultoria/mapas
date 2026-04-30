@@ -66,6 +66,9 @@ def _make_client(host: str, community: str, port: int, version: str) -> Client:
 def _safe_str(val: Any) -> Optional[str]:
     if val is None:
         return None
+    # puresnmp retorna tipos x690 (OctetString, etc.) com .value como bytes
+    if hasattr(val, 'value'):
+        val = val.value
     if isinstance(val, bytes):
         try:
             return val.decode("utf-8", errors="replace").strip()
@@ -76,6 +79,9 @@ def _safe_str(val: Any) -> Optional[str]:
 
 
 def _safe_int(val: Any) -> Optional[int]:
+    # puresnmp retorna tipos x690 (Integer, Gauge, Counter) com .value como int
+    if hasattr(val, 'value'):
+        val = val.value
     try:
         return int(val)
     except Exception:
@@ -83,6 +89,9 @@ def _safe_int(val: Any) -> Optional[int]:
 
 
 def _format_mac(raw: Any) -> Optional[str]:
+    # puresnmp retorna OctetString com .value como bytes
+    if hasattr(raw, 'value'):
+        raw = raw.value
     if isinstance(raw, bytes) and len(raw) == 6:
         return ":".join(f"{b:02x}" for b in raw)
     return None

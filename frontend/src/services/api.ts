@@ -42,6 +42,7 @@ export interface Device {
   snmp_enabled: boolean
   pos_x?: number
   pos_y?: number
+  image_url?: string
   created_at?: string
   interfaces: Interface[]
 }
@@ -121,6 +122,14 @@ export const devicesApi = {
   poll: (id: number) => api.post<Device>(`/devices/${id}/poll`).then(r => r.data),
   updatePosition: (id: number, pos_x: number, pos_y: number) =>
     api.patch<Device>(`/devices/${id}/position`, { pos_x, pos_y }).then(r => r.data),
+  uploadImage: (id: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<Device>(`/devices/${id}/image`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deleteImage: (id: number) => api.delete<Device>(`/devices/${id}/image`).then(r => r.data),
 }
 
 export const topologyApi = {

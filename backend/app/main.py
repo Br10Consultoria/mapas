@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -86,6 +88,10 @@ app.include_router(devices.router, prefix="/api/v1")
 app.include_router(topology.router, prefix="/api/v1")
 app.include_router(metrics.router, prefix="/api/v1")
 app.include_router(logs.router, prefix="/api/v1")
+
+# Servir uploads de imagens
+os.makedirs("/app/uploads/devices", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 
 
 @app.get("/health")

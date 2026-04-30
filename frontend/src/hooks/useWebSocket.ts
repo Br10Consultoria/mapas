@@ -7,17 +7,22 @@ export interface WsDeviceStatus {
   uptime?: number
 }
 
-export interface WsMessage {
-  type: 'device_status'
-  timestamp: string
-  data: WsDeviceStatus[]
+export interface WsLinkTraffic {
+  link_id: string
+  in_bps: number
+  out_bps: number
 }
+
+export type WsMessage =
+  | { type: 'device_status'; timestamp: string; data: WsDeviceStatus[] }
+  | { type: 'link_traffic'; timestamp: string; data: WsLinkTraffic[] }
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
   const [lastMessage, setLastMessage] = useState<WsMessage | null>(null)
   const [deviceStatuses, setDeviceStatuses] = useState<Record<string, WsDeviceStatus>>({})
+  const [linkTraffic, setLinkTraffic] = useState<Record<string, WsLinkTraffic>>({})
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const connect = useCallback(() => {
@@ -42,6 +47,12 @@ export function useWebSocket() {
             msg.data.forEach(d => { next[d.id] = d })
             return next
           })
+        } else if (msg.type === 'link_traffic') {
+          setLinkTraffic(prev => {
+            const next = { ...prev }
+            msg.data.forEach(t => { next[t.link_id] = t })
+            return next
+          })
         }
       } catch (e) {
         // ignore parse errors
@@ -50,7 +61,6 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setConnected(false)
-      // Reconnect after 5s
       reconnectTimer.current = setTimeout(connect, 5000)
     }
 
@@ -67,5 +77,5 @@ export function useWebSocket() {
     }
   }, [connect])
 
-  return { connected, lastMessage, deviceStatuses }
+  return { connected, lastMessage, deviceStatuses, linkTraffic }
 }

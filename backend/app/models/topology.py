@@ -62,6 +62,9 @@ class Device(Base):
     pos_x = Column(Float, nullable=True)
     pos_y = Column(Float, nullable=True)
 
+    # Custom image
+    image_url = Column(String(500), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -47,12 +47,12 @@ manager = ConnectionManager()
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket para atualizações em tempo real.
-    Envia status dos dispositivos e métricas de interfaces a cada 30s.
+    Envia status dos dispositivos e métricas de tráfego por link a cada 30s.
     """
     await manager.connect(websocket)
     try:
         while True:
-            # Collect current device statuses
+            # 1. Status dos dispositivos
             async with AsyncSessionLocal() as session:
                 result = await session.execute(select(Device))
                 devices = result.scalars().all()
@@ -73,6 +73,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 "data": status_data,
             })
 
+            # 2. Tráfego em tempo real por link (via InfluxDB)
+            try:
+                link_traffic = await _get_link_traffic()
+                if link_traffic:
+                    await websocket.send_json({
+                        "type": "link_traffic",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "data": link_traffic,
+                    })
+            except Exception as e:
+                logger.debug(f"Link traffic query error: {e}")
+
             await asyncio.sleep(settings.POLL_INTERVAL_STATUS)
 
     except WebSocketDisconnect:
@@ -80,6 +92,68 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket)
+
+
+async def _get_link_traffic() -> list:
+    """Busca tráfego atual (bps) de cada link no InfluxDB."""
+    from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
+    from app.models.topology import Link, Interface
+    from sqlalchemy.orm import selectinload
+
+    async with AsyncSessionLocal() as session:
+        links_result = await session.execute(
+            select(Link)
+            .options(
+                selectinload(Link.source_interface),
+                selectinload(Link.target_interface),
+                selectinload(Link.source_device),
+                selectinload(Link.target_device),
+            )
+            .where(Link.is_active == True)
+        )
+        links = links_result.scalars().all()
+
+    if not links:
+        return []
+
+    client = InfluxDBClientAsync(
+        url=settings.INFLUXDB_URL,
+        token=settings.INFLUXDB_TOKEN,
+        org=settings.INFLUXDB_ORG,
+    )
+    result = []
+    try:
+        query_api = client.query_api()
+        for link in links:
+            traffic = {"link_id": str(link.id), "in_bps": 0.0, "out_bps": 0.0}
+            src_if = link.source_interface
+            if src_if and link.source_device:
+                flux = f'''
+from(bucket: "{settings.INFLUXDB_BUCKET}")
+  |> range(start: -2m)
+  |> filter(fn: (r) => r["_measurement"] == "interface_traffic")
+  |> filter(fn: (r) => r["device"] == "{link.source_device.hostname}")
+  |> filter(fn: (r) => r["if_index"] == "{src_if.if_index}")
+  |> filter(fn: (r) => r["_field"] == "in_octets" or r["_field"] == "out_octets")
+  |> last()
+  |> derivative(unit: 1s, nonNegative: true)
+  |> map(fn: (r) => ({{ r with _value: r._value * 8.0 }}))
+'''
+                try:
+                    tables = await query_api.query(flux)
+                    for table in tables:
+                        for record in table.records:
+                            v = record.get_value() or 0
+                            if record.get_field() == "in_octets":
+                                traffic["in_bps"] = round(v, 1)
+                            elif record.get_field() == "out_octets":
+                                traffic["out_bps"] = round(v, 1)
+                except Exception:
+                    pass
+            result.append(traffic)
+    finally:
+        await client.close()
+    return result
 
 
 @router.get("/interface/{device_id}/{if_index}")

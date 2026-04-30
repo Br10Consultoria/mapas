@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import shutil
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
@@ -10,6 +13,11 @@ from app.core.database import get_db
 from app.models.topology import Device, Interface, DeviceType, DeviceVendor, DeviceStatus
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
+
+UPLOAD_DIR = "/app/uploads/devices"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"}
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -81,6 +89,7 @@ class DeviceOut(BaseModel):
     snmp_enabled: bool
     pos_x: Optional[float]
     pos_y: Optional[float]
+    image_url: Optional[str]
     created_at: Optional[datetime]
     interfaces: List[InterfaceOut] = []
 
@@ -105,7 +114,6 @@ async def list_devices(db: AsyncSession = Depends(get_db)):
 
 @router.post("/", response_model=DeviceOut, status_code=status.HTTP_201_CREATED)
 async def create_device(payload: DeviceCreate, db: AsyncSession = Depends(get_db)):
-    # Check for duplicates
     existing = await db.execute(
         select(Device).where(
             (Device.ip_address == payload.ip_address) |
@@ -120,7 +128,6 @@ async def create_device(payload: DeviceCreate, db: AsyncSession = Depends(get_db
     device = Device(**payload.model_dump())
     db.add(device)
     await db.commit()
-    # Re-query with interfaces loaded
     result2 = await db.execute(
         select(Device).options(selectinload(Device.interfaces)).where(Device.id == device.id)
     )
@@ -149,6 +156,68 @@ async def update_device(device_id: int, payload: DeviceUpdate, db: AsyncSession 
     for key, val in payload.model_dump(exclude_none=True).items():
         setattr(device, key, val)
     await db.commit()
+    result2 = await db.execute(
+        select(Device).options(selectinload(Device.interfaces)).where(Device.id == device_id)
+    )
+    return result2.scalar_one()
+
+
+@router.post("/{device_id}/image", response_model=DeviceOut)
+async def upload_device_image(
+    device_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Faz upload de imagem/ícone personalizado para o dispositivo."""
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de arquivo não suportado: {file.content_type}. Use JPG, PNG, GIF, WebP ou SVG.",
+        )
+
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Remove imagem anterior se existir
+    if device.image_url:
+        old_path = f"/app{device.image_url}"
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    # Salva nova imagem com nome único
+    ext = os.path.splitext(file.filename or "img.png")[1] or ".png"
+    filename = f"{device_id}_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = os.path.join(UPLOAD_DIR, filename)
+
+    with open(save_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    device.image_url = f"/uploads/devices/{filename}"
+    await db.commit()
+
+    result2 = await db.execute(
+        select(Device).options(selectinload(Device.interfaces)).where(Device.id == device_id)
+    )
+    return result2.scalar_one()
+
+
+@router.delete("/{device_id}/image", response_model=DeviceOut)
+async def delete_device_image(device_id: int, db: AsyncSession = Depends(get_db)):
+    """Remove a imagem personalizada do dispositivo."""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if device.image_url:
+        old_path = f"/app{device.image_url}"
+        if os.path.exists(old_path):
+            os.remove(old_path)
+        device.image_url = None
+        await db.commit()
+
     result2 = await db.execute(
         select(Device).options(selectinload(Device.interfaces)).where(Device.id == device_id)
     )

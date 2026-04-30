@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { topologyApi, devicesApi, Topology, Device } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
 import NetworkMap from '../components/map/NetworkMap'
 import {
-  RefreshCw, Search, ZoomIn, ZoomOut, Maximize2,
-  Server, Network, Link, X, Play
+  RefreshCw, Search,
+  Server, Network, X, Play
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -163,6 +163,8 @@ export default function TopologyPage() {
     }
   }
 
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+
   const handlePositionChange = useCallback(async (e: Event) => {
     const { id, x, y } = (e as CustomEvent).detail
     try {
@@ -171,6 +173,13 @@ export default function TopologyPage() {
       console.error('Failed to save position', err)
     }
   }, [])
+
+  useEffect(() => {
+    const el = mapContainerRef.current
+    if (!el) return
+    el.addEventListener('nodePositionChanged', handlePositionChange)
+    return () => el.removeEventListener('nodePositionChanged', handlePositionChange)
+  }, [handlePositionChange])
 
   return (
     <div className="space-y-4 h-full flex flex-col">
@@ -230,8 +239,8 @@ export default function TopologyPage() {
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Map */}
         <div
+          ref={mapContainerRef}
           className="flex-1 card overflow-hidden relative"
-          onNodePositionChanged={handlePositionChange as any}
         >
           {loading ? (
             <div className="absolute inset-0 flex items-center justify-center bg-white">

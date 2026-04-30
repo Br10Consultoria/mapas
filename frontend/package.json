@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -14,7 +15,6 @@
     "cytoscape": "^3.30.2",
     "cytoscape-dagre": "^2.5.0",
     "cytoscape-fcose": "^2.2.0",
-    "react-cytoscapejs": "^2.0.0",
     "recharts": "^2.13.3",
     "axios": "^1.7.7",
     "lucide-react": "^0.460.0",

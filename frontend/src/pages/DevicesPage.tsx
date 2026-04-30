@@ -339,7 +339,7 @@ export default function DevicesPage() {
                         'text-xs font-medium',
                         d.snmp_enabled ? 'text-emerald-600' : 'text-slate-400'
                       )}>
-                        {d.snmp_enabled ? `v${d.snmp_version || '2c'}` : 'Desativado'}
+                        {d.snmp_enabled ? 'Ativo' : 'Desativado'}
                       </span>
                     </td>
                     <td className="px-4 py-3"><StatusBadge status={d.status} /></td>

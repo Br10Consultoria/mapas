@@ -1,10 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react'
-import cytoscape, { Core, NodeSingular, ElementDefinition } from 'cytoscape'
+import cytoscape, { Core, NodeSingular, ElementDefinition, Stylesheet } from 'cytoscape'
 import fcose from 'cytoscape-fcose'
 import { Topology, DeviceStatus } from '../../services/api'
 
-// Register layouts
-cytoscape.use(fcose as any)
+// Register layout
+cytoscape.use(fcose)
 
 // Status colors
 const STATUS_COLOR: Record<DeviceStatus, string> = {
@@ -12,15 +12,6 @@ const STATUS_COLOR: Record<DeviceStatus, string> = {
   down:     '#ef4444',
   degraded: '#f59e0b',
   unknown:  '#94a3b8',
-}
-
-// Device type icons (SVG paths encoded as background)
-const DEVICE_SHAPE: Record<string, string> = {
-  router:   'round-rectangle',
-  switch:   'rectangle',
-  firewall: 'diamond',
-  server:   'round-rectangle',
-  unknown:  'ellipse',
 }
 
 const VENDOR_COLORS: Record<string, string> = {
@@ -60,8 +51,8 @@ export default function NetworkMap({
           status: liveStatus,
           model: node.model || '',
           location: node.location || '',
-          statusColor: STATUS_COLOR[liveStatus] || STATUS_COLOR.unknown,
-          vendorColor: VENDOR_COLORS[node.vendor] || VENDOR_COLORS.generic,
+          statusColor: STATUS_COLOR[liveStatus] ?? STATUS_COLOR.unknown,
+          vendorColor: VENDOR_COLORS[node.vendor] ?? VENDOR_COLORS.generic,
         },
         position: node.pos_x != null && node.pos_y != null
           ? { x: node.pos_x, y: node.pos_y }
@@ -90,106 +81,103 @@ export default function NetworkMap({
   useEffect(() => {
     if (!containerRef.current) return
 
+    const stylesheet: Stylesheet[] = [
+      {
+        selector: 'node',
+        style: {
+          'background-color': 'data(vendorColor)',
+          'border-width': 3,
+          'border-color': 'data(statusColor)',
+          'label': 'data(label)',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'font-size': '11px',
+          'font-family': 'Inter, sans-serif',
+          'font-weight': 500,
+          'color': '#1e293b',
+          'text-margin-y': 4,
+          'width': 48,
+          'height': 48,
+          'text-background-color': '#ffffff',
+          'text-background-opacity': 0.85,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
+          'overlay-padding': '6px',
+        },
+      },
+      {
+        selector: 'node[device_type = "router"]',
+        style: { 'shape': 'round-rectangle', 'width': 52, 'height': 52 },
+      },
+      {
+        selector: 'node[device_type = "switch"]',
+        style: { 'shape': 'rectangle', 'width': 56, 'height': 44 },
+      },
+      {
+        selector: 'node[device_type = "firewall"]',
+        style: { 'shape': 'diamond', 'width': 52, 'height': 52 },
+      },
+      {
+        selector: 'node[status = "down"]',
+        style: {
+          'opacity': 0.6,
+          'border-style': 'dashed',
+        },
+      },
+      {
+        selector: 'node:selected',
+        style: {
+          'border-width': 5,
+          'border-color': '#2563eb',
+        },
+      },
+      {
+        selector: 'edge',
+        style: {
+          'width': 2,
+          'line-color': '#cbd5e1',
+          'target-arrow-shape': 'none',
+          'curve-style': 'bezier',
+          'label': 'data(label)',
+          'font-size': '9px',
+          'color': '#64748b',
+          'text-rotation': 'autorotate',
+          'text-background-color': '#f8fafc',
+          'text-background-opacity': 0.9,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
+        },
+      },
+      {
+        selector: 'edge[discovered_via = "lldp"]',
+        style: { 'line-color': '#93c5fd', 'width': 2.5 },
+      },
+      {
+        selector: 'edge[discovered_via = "manual"]',
+        style: { 'line-color': '#c4b5fd', 'line-style': 'dashed' },
+      },
+      {
+        selector: 'edge:selected',
+        style: { 'line-color': '#2563eb', 'width': 3 },
+      },
+    ]
+
     const cy = cytoscape({
       container: containerRef.current,
       elements: buildElements(),
-      style: [
-        {
-          selector: 'node',
-          style: {
-            'background-color': 'data(vendorColor)',
-            'border-width': 3,
-            'border-color': 'data(statusColor)',
-            'label': 'data(label)',
-            'text-valign': 'bottom',
-            'text-halign': 'center',
-            'font-size': '11px',
-            'font-family': 'Inter, sans-serif',
-            'font-weight': '500',
-            'color': '#1e293b',
-            'text-margin-y': 4,
-            'width': 48,
-            'height': 48,
-            'shape': 'data(device_type)' as any,
-            'text-background-color': '#ffffff',
-            'text-background-opacity': 0.85,
-            'text-background-padding': '2px',
-            'text-background-shape': 'roundrectangle',
-            'overlay-padding': '6px',
-          },
-        },
-        {
-          selector: 'node[device_type = "router"]',
-          style: { 'shape': 'round-rectangle', 'width': 52, 'height': 52 },
-        },
-        {
-          selector: 'node[device_type = "switch"]',
-          style: { 'shape': 'rectangle', 'width': 56, 'height': 44 },
-        },
-        {
-          selector: 'node[device_type = "firewall"]',
-          style: { 'shape': 'diamond', 'width': 52, 'height': 52 },
-        },
-        {
-          selector: 'node[status = "down"]',
-          style: {
-            'opacity': 0.6,
-            'border-style': 'dashed',
-          },
-        },
-        {
-          selector: 'node:selected',
-          style: {
-            'border-width': 4,
-            'border-color': '#2563eb',
-            'box-shadow': '0 0 0 3px rgba(37,99,235,0.3)',
-          },
-        },
-        {
-          selector: 'edge',
-          style: {
-            'width': 2,
-            'line-color': '#cbd5e1',
-            'target-arrow-shape': 'none',
-            'curve-style': 'bezier',
-            'label': 'data(label)',
-            'font-size': '9px',
-            'color': '#64748b',
-            'text-rotation': 'autorotate',
-            'text-background-color': '#f8fafc',
-            'text-background-opacity': 0.9,
-            'text-background-padding': '2px',
-            'text-background-shape': 'roundrectangle',
-          },
-        },
-        {
-          selector: 'edge[discovered_via = "lldp"]',
-          style: { 'line-color': '#93c5fd', 'width': 2.5 },
-        },
-        {
-          selector: 'edge[discovered_via = "manual"]',
-          style: { 'line-color': '#c4b5fd', 'line-style': 'dashed' },
-        },
-        {
-          selector: 'edge:selected',
-          style: { 'line-color': '#2563eb', 'width': 3 },
-        },
-      ],
+      style: stylesheet,
       layout: {
         name: topology.nodes.some(n => n.pos_x != null) ? 'preset' : 'fcose',
         animate: true,
         animationDuration: 600,
         padding: 40,
-        nodeSep: 80,
-        edgeSep: 40,
         fit: true,
-      } as any,
+      } as cytoscape.LayoutOptions,
       wheelSensitivity: 0.3,
       minZoom: 0.1,
       maxZoom: 4,
     })
 
-    // Events
     cy.on('tap', 'node', (evt) => {
       onNodeClick?.(evt.target.id())
     })
@@ -197,15 +185,13 @@ export default function NetworkMap({
       onEdgeClick?.(evt.target.id())
     })
 
-    // Save positions on drag
+    // Save positions on drag end
     cy.on('dragfree', 'node', (evt) => {
       const node = evt.target as NodeSingular
       const pos = node.position()
-      const id = node.id()
-      // Dispatch custom event for parent to handle
       containerRef.current?.dispatchEvent(
         new CustomEvent('nodePositionChanged', {
-          detail: { id, x: pos.x, y: pos.y },
+          detail: { id: node.id(), x: pos.x, y: pos.y },
           bubbles: true,
         })
       )
@@ -216,25 +202,21 @@ export default function NetworkMap({
       cy.destroy()
       cyRef.current = null
     }
-  }, [topology])
+  }, [topology, buildElements, onNodeClick, onEdgeClick])
 
-  // Update statuses without re-rendering
+  // Update statuses in real-time without full re-render
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
     Object.entries(deviceStatuses).forEach(([id, { status }]) => {
       const node = cy.$(`#${id}`)
       if (node.length) {
+        const color = STATUS_COLOR[status] ?? STATUS_COLOR.unknown
         node.data('status', status)
-        node.data('statusColor', STATUS_COLOR[status] || STATUS_COLOR.unknown)
-        node.style('border-color', STATUS_COLOR[status] || STATUS_COLOR.unknown)
-        if (status === 'down') {
-          node.style('opacity', 0.6)
-          node.style('border-style', 'dashed')
-        } else {
-          node.style('opacity', 1)
-          node.style('border-style', 'solid')
-        }
+        node.data('statusColor', color)
+        node.style('border-color', color)
+        node.style('opacity', status === 'down' ? 0.6 : 1)
+        node.style('border-style', status === 'down' ? 'dashed' : 'solid')
       }
     })
   }, [deviceStatuses])

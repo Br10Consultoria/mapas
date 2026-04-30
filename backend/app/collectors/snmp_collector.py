@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 
 from puresnmp import Client, V2C, V1
-from puresnmp.exc import SNMPError
+from puresnmp.exc import SnmpError as SNMPError
 
 from app.core.config import settings
 

@@ -3,6 +3,7 @@ Serviço de autenticação: JWT + TOTP 2FA
 """
 import secrets
 import logging
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -30,12 +31,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── Password ──────────────────────────────────────────────────────────────────
 
+def _pre_hash(password: str) -> str:
+    """Pré-processa a senha com SHA-256 para evitar o limite de 72 bytes do bcrypt.
+    O resultado é uma string hex de 64 chars, segura para bcrypt."""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return pwd_context.hash(_pre_hash(password))
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return pwd_context.verify(_pre_hash(plain), hashed)
 
 
 # ── JWT ───────────────────────────────────────────────────────────────────────

@@ -10,8 +10,15 @@ from datetime import datetime, timezone
 
 from puresnmp import Client, V2C, V1
 from puresnmp.exc import SnmpError as SNMPError
+from x690.types import ObjectIdentifier
+
 
 from app.core.config import settings
+
+
+def _oid(s: str) -> ObjectIdentifier:
+    """Converte string OID para ObjectIdentifier (puresnmp exige este tipo)."""
+    return ObjectIdentifier(f".{s}" if not s.startswith(".") else s)
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +121,7 @@ async def _walk(host: str, base_oid: str, community: str, port: int, version: st
     result = {}
     try:
         client = _make_client(host, community, port, version)
-        async for varbind in client.walk(base_oid):
+        async for varbind in client.walk(_oid(base_oid)):
             result[str(varbind.oid)] = varbind.value
     except SNMPError as e:
         logger.debug(f"SNMP walk {base_oid} on {host}: {e}")
@@ -127,7 +134,7 @@ async def _multiget(host: str, oids: List[str], community: str, port: int, versi
     """Executa SNMP MULTIGET e retorna lista de valores na mesma ordem."""
     try:
         client = _make_client(host, community, port, version)
-        values = await asyncio.wait_for(client.multiget(oids), timeout=TIMEOUT)
+        values = await asyncio.wait_for(client.multiget([_oid(o) for o in oids]), timeout=TIMEOUT)
         return list(values)
     except asyncio.TimeoutError:
         logger.warning(f"SNMP multiget timeout on {host}")

@@ -3,9 +3,11 @@ import { devicesApi, Device, DeviceCreate, DeviceType, DeviceVendor } from '../s
 import { useWebSocket } from '../hooks/useWebSocket'
 import {
   Plus, RefreshCw, Trash2, Play, X, CheckCircle2,
-  XCircle, AlertTriangle, HelpCircle, ChevronDown
+  XCircle, AlertTriangle, HelpCircle, Pencil
 } from 'lucide-react'
 import clsx from 'clsx'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { cls: string; icon: React.ElementType; label: string }> = {
@@ -35,23 +37,18 @@ const VENDOR_LABELS: Record<DeviceVendor, string> = {
   cisco: 'Cisco', generic: 'Genérico',
 }
 
-interface AddDeviceModalProps {
+// ── Device Form (shared by Add and Edit) ─────────────────────────────────────
+
+interface DeviceFormProps {
+  initial: DeviceCreate
+  title: string
+  submitLabel: string
   onClose: () => void
-  onCreated: () => void
+  onSubmit: (form: DeviceCreate) => Promise<void>
 }
 
-function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
-  const [form, setForm] = useState<DeviceCreate>({
-    name: '',
-    hostname: '',
-    ip_address: '',
-    device_type: 'unknown',
-    vendor: 'generic',
-    snmp_community: 'public',
-    snmp_version: '2c',
-    snmp_port: 161,
-    snmp_enabled: true,
-  })
+function DeviceForm({ initial, title, submitLabel, onClose, onSubmit }: DeviceFormProps) {
+  const [form, setForm] = useState<DeviceCreate>(initial)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -63,11 +60,10 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
     setLoading(true)
     setError('')
     try {
-      await devicesApi.create(form)
-      onCreated()
+      await onSubmit(form)
       onClose()
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erro ao criar dispositivo.')
+      setError(err.response?.data?.detail || 'Erro ao salvar dispositivo.')
     } finally {
       setLoading(false)
     }
@@ -75,10 +71,10 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-900">Adicionar Dispositivo</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+          <h2 className="text-base font-semibold text-slate-900">{title}</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg">
             <X size={16} className="text-slate-400" />
           </button>
@@ -153,23 +149,34 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
             </div>
           </div>
 
-          <div>
-            <label className="label">Modelo</label>
-            <input
-              className="input"
-              placeholder="ex: S5720-28X-SI"
-              value={form.model || ''}
-              onChange={e => set('model', e.target.value)}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Modelo</label>
+              <input
+                className="input"
+                placeholder="ex: S5720-28X-SI"
+                value={form.model || ''}
+                onChange={e => set('model', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Localização</label>
+              <input
+                className="input"
+                placeholder="ex: Rack A - Sala 01"
+                value={form.location || ''}
+                onChange={e => set('location', e.target.value)}
+              />
+            </div>
           </div>
 
           <div>
-            <label className="label">Localização</label>
+            <label className="label">Descrição</label>
             <input
               className="input"
-              placeholder="ex: Sala de Servidores - Rack A"
-              value={form.location || ''}
-              onChange={e => set('location', e.target.value)}
+              placeholder="Descrição opcional do dispositivo"
+              value={form.description || ''}
+              onChange={e => set('description', e.target.value)}
             />
           </div>
 
@@ -183,7 +190,7 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
                 <label className="label">Comunidade</label>
                 <input
                   className="input font-mono"
-                  value={form.snmp_community}
+                  value={form.snmp_community || 'public'}
                   onChange={e => set('snmp_community', e.target.value)}
                 />
               </div>
@@ -191,7 +198,7 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
                 <label className="label">Versão</label>
                 <select
                   className="input"
-                  value={form.snmp_version}
+                  value={form.snmp_version || '2c'}
                   onChange={e => set('snmp_version', e.target.value)}
                 >
                   <option value="1">v1</option>
@@ -203,10 +210,22 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
                 <input
                   className="input font-mono"
                   type="number"
-                  value={form.snmp_port}
+                  value={form.snmp_port || 161}
                   onChange={e => set('snmp_port', Number(e.target.value))}
                 />
               </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                id="snmp_enabled"
+                type="checkbox"
+                checked={form.snmp_enabled ?? true}
+                onChange={e => set('snmp_enabled', e.target.checked)}
+                className="rounded border-slate-300 text-primary-600"
+              />
+              <label htmlFor="snmp_enabled" className="text-sm text-slate-700 cursor-pointer">
+                SNMP habilitado
+              </label>
             </div>
           </div>
 
@@ -217,7 +236,7 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
             </button>
             <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center">
               {loading ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
-              {loading ? 'Salvando...' : 'Adicionar'}
+              {loading ? 'Salvando...' : submitLabel}
             </button>
           </div>
         </form>
@@ -226,10 +245,13 @@ function AddDeviceModal({ onClose, onCreated }: AddDeviceModalProps) {
   )
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function DevicesPage() {
   const [devices, setDevices] = useState<Device[]>([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [editDevice, setEditDevice] = useState<Device | null>(null)
   const [polling, setPolling] = useState<number | null>(null)
   const [deleting, setDeleting] = useState<number | null>(null)
   const { deviceStatuses } = useWebSocket()
@@ -266,13 +288,24 @@ export default function DevicesPage() {
     }
   }
 
+  const handleCreate = async (form: DeviceCreate) => {
+    await devicesApi.create(form)
+    await load()
+  }
+
+  const handleEdit = async (form: DeviceCreate) => {
+    if (!editDevice) return
+    await devicesApi.update(editDevice.id, form)
+    await load()
+  }
+
   const mergedDevices = devices.map(d => ({
     ...d,
     status: deviceStatuses[String(d.id)]?.status ?? d.status,
   }))
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -284,7 +317,7 @@ export default function DevicesPage() {
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             Atualizar
           </button>
-          <button onClick={() => setShowModal(true)} className="btn-primary">
+          <button onClick={() => setShowAddModal(true)} className="btn-primary">
             <Plus size={15} />
             Adicionar Dispositivo
           </button>
@@ -307,7 +340,7 @@ export default function DevicesPage() {
             <p className="text-sm text-slate-400 mt-1 mb-4">
               Adicione roteadores, switches e outros dispositivos para monitorar.
             </p>
-            <button onClick={() => setShowModal(true)} className="btn-primary">
+            <button onClick={() => setShowAddModal(true)} className="btn-primary">
               <Plus size={14} /> Adicionar Primeiro Dispositivo
             </button>
           </div>
@@ -316,7 +349,7 @@ export default function DevicesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Nome', 'IP', 'Tipo', 'Fabricante', 'Modelo', 'SNMP', 'Status', 'Último Contato', 'Ações'].map(h => (
+                  {['Nome', 'IP', 'Tipo', 'Fabricante', 'Modelo', 'Localização', 'SNMP', 'Status', 'Último Contato', 'Ações'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                       {h}
                     </th>
@@ -331,9 +364,10 @@ export default function DevicesPage() {
                       <p className="text-xs text-slate-400 font-mono">{d.hostname}</p>
                     </td>
                     <td className="px-4 py-3 font-mono text-slate-600">{d.ip_address}</td>
-                    <td className="px-4 py-3 text-slate-600 capitalize">{TYPE_LABELS[d.device_type as DeviceType] || d.device_type}</td>
-                    <td className="px-4 py-3 text-slate-600 capitalize">{VENDOR_LABELS[d.vendor as DeviceVendor] || d.vendor}</td>
+                    <td className="px-4 py-3 text-slate-600">{TYPE_LABELS[d.device_type as DeviceType] || d.device_type}</td>
+                    <td className="px-4 py-3 text-slate-600">{VENDOR_LABELS[d.vendor as DeviceVendor] || d.vendor}</td>
                     <td className="px-4 py-3 text-slate-500">{d.model || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs">{d.location || '—'}</td>
                     <td className="px-4 py-3">
                       <span className={clsx(
                         'text-xs font-medium',
@@ -348,14 +382,26 @@ export default function DevicesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
+                        {/* Poll */}
                         <button
                           onClick={() => handlePoll(d.id)}
                           disabled={polling === d.id}
                           title="Consultar agora"
                           className="p-1.5 hover:bg-primary-50 text-primary-600 rounded-lg transition-colors disabled:opacity-50"
                         >
-                          <Play size={14} className={polling === d.id ? 'animate-spin' : ''} />
+                          {polling === d.id
+                            ? <RefreshCw size={14} className="animate-spin" />
+                            : <Play size={14} />}
                         </button>
+                        {/* Edit */}
+                        <button
+                          onClick={() => setEditDevice(d)}
+                          title="Editar dispositivo"
+                          className="p-1.5 hover:bg-amber-50 text-amber-600 rounded-lg transition-colors"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        {/* Delete */}
                         <button
                           onClick={() => handleDelete(d.id)}
                           disabled={deleting === d.id}
@@ -374,10 +420,43 @@ export default function DevicesPage() {
         )}
       </div>
 
-      {showModal && (
-        <AddDeviceModal
-          onClose={() => setShowModal(false)}
-          onCreated={load}
+      {/* Add Modal */}
+      {showAddModal && (
+        <DeviceForm
+          title="Adicionar Dispositivo"
+          submitLabel="Adicionar"
+          initial={{
+            name: '', hostname: '', ip_address: '',
+            device_type: 'unknown', vendor: 'generic',
+            snmp_community: 'public', snmp_version: '2c',
+            snmp_port: 161, snmp_enabled: true,
+          }}
+          onClose={() => setShowAddModal(false)}
+          onSubmit={handleCreate}
+        />
+      )}
+
+      {/* Edit Modal */}
+      {editDevice && (
+        <DeviceForm
+          title={`Editar — ${editDevice.name}`}
+          submitLabel="Salvar Alterações"
+          initial={{
+            name: editDevice.name,
+            hostname: editDevice.hostname,
+            ip_address: editDevice.ip_address,
+            device_type: editDevice.device_type,
+            vendor: editDevice.vendor,
+            model: editDevice.model || '',
+            description: editDevice.description || '',
+            location: editDevice.location || '',
+            snmp_community: (editDevice as any).snmp_community || 'public',
+            snmp_version: (editDevice as any).snmp_version || '2c',
+            snmp_port: (editDevice as any).snmp_port || 161,
+            snmp_enabled: editDevice.snmp_enabled,
+          }}
+          onClose={() => setEditDevice(null)}
+          onSubmit={handleEdit}
         />
       )}
     </div>

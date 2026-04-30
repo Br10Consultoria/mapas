@@ -99,6 +99,28 @@ async def _cleanup_old_logs():
         logger.error(f"Erro ao limpar logs antigos: {e}")
 
 
+async def _run_migrations():
+    """Aplica migrações automáticas para adicionar colunas novas ao banco existente."""
+    migrations = [
+        # devices: colunas adicionadas após criação inicial
+        "ALTER TABLE devices ADD COLUMN IF NOT EXISTS image_url VARCHAR;",
+        "ALTER TABLE devices ADD COLUMN IF NOT EXISTS pos_x FLOAT DEFAULT 0;",
+        "ALTER TABLE devices ADD COLUMN IF NOT EXISTS pos_y FLOAT DEFAULT 0;",
+        # users: tabela de autenticação
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS backup_codes TEXT;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP WITH TIME ZONE;",
+    ]
+    try:
+        async with engine.begin() as conn:
+            for sql in migrations:
+                await conn.execute(__import__('sqlalchemy').text(sql))
+        logger.info("Migrations automáticas aplicadas com sucesso.")
+    except Exception as e:
+        logger.warning(f"Aviso nas migrations automáticas: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -106,6 +128,9 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified.")
+
+    # Migration automática: adicionar colunas novas que possam não existir ainda
+    await _run_migrations()
 
     # Criar admin padrão se necessário
     await _create_default_admin()

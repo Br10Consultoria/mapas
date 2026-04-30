@@ -12,6 +12,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    networks:
+      - netmap
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U netmap"]
       interval: 10s
@@ -34,6 +36,8 @@ services:
       - influxdb_data:/var/lib/influxdb2
     ports:
       - "8086:8086"
+    networks:
+      - netmap
     healthcheck:
       test: ["CMD", "influx", "ping"]
       interval: 10s
@@ -41,6 +45,8 @@ services:
       retries: 5
 
   # ── Backend (FastAPI) ───────────────────────────────────────────────────────
+  # NOTA: usa network_mode host para alcançar dispositivos SNMP na rede local.
+  # Por isso, os outros serviços se comunicam com o backend via 127.0.0.1.
   backend:
     build:
       context: ./backend
@@ -48,12 +54,12 @@ services:
     container_name: netmap-backend
     restart: unless-stopped
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: 5432
       POSTGRES_USER: netmap
       POSTGRES_PASSWORD: netmap123
       POSTGRES_DB: netmap
-      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_URL: http://127.0.0.1:8086
       INFLUXDB_TOKEN: netmap-super-secret-token
       INFLUXDB_ORG: netmap
       INFLUXDB_BUCKET: network_metrics
@@ -66,13 +72,11 @@ services:
         condition: service_healthy
       influxdb:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    # network_mode host é necessário para SNMP/ICMP alcançar dispositivos reais
     network_mode: host
-    # IMPORTANT: network_mode host allows SNMP/ICMP to reach real devices
-    # For production, use a dedicated network with proper routing
 
   # ── Frontend (React + Nginx) ────────────────────────────────────────────────
+  # O Nginx faz proxy para o backend via 127.0.0.1 (host network do backend)
   frontend:
     build:
       context: ./frontend
@@ -81,9 +85,17 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    networks:
+      - netmap
+    extra_hosts:
+      - "backend:host-gateway"
     depends_on:
       - backend
 
 volumes:
   postgres_data:
   influxdb_data:
+
+networks:
+  netmap:
+    driver: bridge

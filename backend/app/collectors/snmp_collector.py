@@ -1,17 +1,28 @@
 """
-SNMP Collector - Coleta métricas de dispositivos via SNMP v1/v2c/v3
+SNMP Collector - Coleta métricas de dispositivos via SNMP v1/v2c
 Suporte a: Huawei, MikroTik, Datacom, Cisco e genéricos
+Compatível com pysnmp >= 6.x (nova API)
 """
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 
-from pysnmp.hlapi.asyncio import (
-    SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
-    ObjectType, ObjectIdentity, getCmd, nextCmd, bulkCmd
-)
-from pysnmp.proto.rfc1902 import Counter32, Counter64, Gauge32, Integer, OctetString
+# pysnmp v6/v7 usa pysnmp.hlapi.v3arch.asyncio
+try:
+    from pysnmp.hlapi.v3arch.asyncio import (
+        SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
+        ObjectType, ObjectIdentity, get_cmd, next_cmd,
+    )
+    PYSNMP_NEW_API = True
+except ImportError:
+    # fallback para versões mais antigas
+    from pysnmp.hlapi.asyncio import (
+        SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
+        ObjectType, ObjectIdentity,
+    )
+    from pysnmp.hlapi.asyncio import getCmd as get_cmd, nextCmd as next_cmd
+    PYSNMP_NEW_API = False
 
 from app.core.config import settings
 
@@ -26,7 +37,6 @@ OIDS = {
     "sysContact":     "1.3.6.1.2.1.1.4.0",
     "sysName":        "1.3.6.1.2.1.1.5.0",
     "sysLocation":    "1.3.6.1.2.1.1.6.0",
-
     # Interfaces table
     "ifIndex":        "1.3.6.1.2.1.2.2.1.1",
     "ifDescr":        "1.3.6.1.2.1.2.2.1.2",
@@ -40,41 +50,32 @@ OIDS = {
     "ifInErrors":     "1.3.6.1.2.1.2.2.1.14",
     "ifOutOctets":    "1.3.6.1.2.1.2.2.1.16",
     "ifOutErrors":    "1.3.6.1.2.1.2.2.1.20",
-
     # IF-MIB (64-bit counters)
     "ifHCInOctets":   "1.3.6.1.2.1.31.1.1.1.6",
     "ifHCOutOctets":  "1.3.6.1.2.1.31.1.1.1.10",
     "ifHighSpeed":    "1.3.6.1.2.1.31.1.1.1.15",
     "ifAlias":        "1.3.6.1.2.1.31.1.1.1.18",
-
     # IP-MIB
     "ipAdEntAddr":    "1.3.6.1.2.1.4.20.1.1",
     "ipAdEntIfIndex": "1.3.6.1.2.1.4.20.1.2",
     "ipAdEntNetMask": "1.3.6.1.2.1.4.20.1.3",
-
     # LLDP-MIB
-    "lldpRemSysName":     "1.0.8802.1.1.2.1.4.1.1.9",
-    "lldpRemPortId":      "1.0.8802.1.1.2.1.4.1.1.7",
-    "lldpRemPortDesc":    "1.0.8802.1.1.2.1.4.1.1.8",
-    "lldpRemManAddr":     "1.0.8802.1.1.2.1.4.2.1.3",
-
+    "lldpRemSysName":  "1.0.8802.1.1.2.1.4.1.1.9",
+    "lldpRemPortId":   "1.0.8802.1.1.2.1.4.1.1.7",
+    "lldpRemPortDesc": "1.0.8802.1.1.2.1.4.1.1.8",
     # Huawei specific
-    "hwEntityCpuUsage":   "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5",
-    "hwEntityMemUsage":   "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7",
-
+    "hwEntityCpuUsage": "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5",
+    "hwEntityMemUsage": "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7",
     # MikroTik specific
-    "mtxrCPUFrequency":   "1.3.6.1.4.1.14988.1.1.3.14",
-    "mtxrMemory":         "1.3.6.1.4.1.14988.1.1.3",
+    "mtxrCPUFrequency": "1.3.6.1.4.1.14988.1.1.3.14",
 }
 
 
 def _format_mac(raw) -> Optional[str]:
-    """Formata endereço MAC a partir de OctetString SNMP."""
     try:
-        if isinstance(raw, OctetString):
-            octets = [f"{b:02x}" for b in bytes(raw)]
-            if len(octets) == 6:
-                return ":".join(octets)
+        octets = [f"{b:02x}" for b in bytes(raw)]
+        if len(octets) == 6:
+            return ":".join(octets)
     except Exception:
         pass
     return None
@@ -115,7 +116,7 @@ async def snmp_get(
         transport = await UdpTransportTarget.create(
             (host, port), timeout=timeout, retries=retries
         )
-        error_indication, error_status, error_index, var_binds = await getCmd(
+        error_indication, error_status, error_index, var_binds = await get_cmd(
             engine,
             CommunityData(community, mpModel=1),
             transport,
@@ -156,7 +157,7 @@ async def snmp_walk(
         transport = await UdpTransportTarget.create(
             (host, port), timeout=timeout, retries=retries
         )
-        async for error_indication, error_status, error_index, var_binds in nextCmd(
+        async for error_indication, error_status, error_index, var_binds in next_cmd(
             engine,
             CommunityData(community, mpModel=1),
             transport,
@@ -185,27 +186,21 @@ async def collect_system_info(
 ) -> Optional[Dict[str, Any]]:
     """Coleta informações básicas do sistema via SNMP."""
     system_oids = [
-        OIDS["sysDescr"],
-        OIDS["sysObjectID"],
-        OIDS["sysUpTime"],
-        OIDS["sysContact"],
-        OIDS["sysName"],
-        OIDS["sysLocation"],
+        OIDS["sysDescr"], OIDS["sysObjectID"], OIDS["sysUpTime"],
+        OIDS["sysContact"], OIDS["sysName"], OIDS["sysLocation"],
     ]
     data = await snmp_get(host, system_oids, community=community, port=port)
     if not data:
         return None
 
-    result = {}
+    result: Dict[str, Any] = {}
     for oid_key, oid_val in OIDS.items():
         if oid_key.startswith("sys"):
-            full_oid = oid_val
             for k, v in data.items():
-                if k.startswith(full_oid.rstrip(".0")):
+                if k.startswith(oid_val.rstrip(".0")):
                     result[oid_key] = _to_str(v)
                     break
 
-    # Detect vendor from sysDescr / sysObjectID
     descr = result.get("sysDescr", "") or ""
     vendor = "generic"
     device_type = "unknown"
@@ -235,30 +230,17 @@ async def collect_interfaces(
     port: int = None,
 ) -> List[Dict[str, Any]]:
     """Coleta tabela de interfaces do dispositivo."""
-    interface_oids = [
-        OIDS["ifIndex"],
-        OIDS["ifDescr"],
-        OIDS["ifType"],
-        OIDS["ifMtu"],
-        OIDS["ifSpeed"],
-        OIDS["ifPhysAddress"],
-        OIDS["ifAdminStatus"],
-        OIDS["ifOperStatus"],
-    ]
-
     interfaces_raw: Dict[int, Dict] = {}
 
     for oid_name in ["ifIndex", "ifDescr", "ifType", "ifMtu", "ifSpeed",
                      "ifPhysAddress", "ifAdminStatus", "ifOperStatus"]:
         walked = await snmp_walk(host, OIDS[oid_name], community=community, port=port)
         for oid_str, val in walked.items():
-            # Extract index from OID (last segment)
             idx = int(oid_str.split(".")[-1])
             if idx not in interfaces_raw:
                 interfaces_raw[idx] = {"if_index": idx}
             interfaces_raw[idx][oid_name] = val
 
-    # Try 64-bit counters and alias
     for oid_name in ["ifHCInOctets", "ifHCOutOctets", "ifHighSpeed", "ifAlias"]:
         walked = await snmp_walk(host, OIDS[oid_name], community=community, port=port)
         for oid_str, val in walked.items():
@@ -290,7 +272,7 @@ async def collect_interface_counters(
     port: int = None,
 ) -> List[Dict[str, Any]]:
     """Coleta contadores de tráfego das interfaces."""
-    counters = {}
+    counters: Dict[int, Dict] = {}
     for oid_name in ["ifHCInOctets", "ifHCOutOctets", "ifInErrors", "ifOutErrors"]:
         walked = await snmp_walk(host, OIDS[oid_name], community=community, port=port)
         for oid_str, val in walked.items():
@@ -299,7 +281,6 @@ async def collect_interface_counters(
                 counters[idx] = {"if_index": idx}
             counters[idx][oid_name] = _to_int(val)
 
-    # Fallback to 32-bit counters
     if not counters:
         for oid_name in ["ifInOctets", "ifOutOctets", "ifInErrors", "ifOutErrors"]:
             walked = await snmp_walk(host, OIDS[oid_name], community=community, port=port)
@@ -309,18 +290,18 @@ async def collect_interface_counters(
                     counters[idx] = {"if_index": idx}
                 counters[idx][oid_name] = _to_int(val)
 
-    result = []
     ts = datetime.now(timezone.utc).isoformat()
-    for idx, c in counters.items():
-        result.append({
+    return [
+        {
             "if_index": idx,
             "in_octets": c.get("ifHCInOctets") or c.get("ifInOctets"),
             "out_octets": c.get("ifHCOutOctets") or c.get("ifOutOctets"),
             "in_errors": c.get("ifInErrors"),
             "out_errors": c.get("ifOutErrors"),
             "collected_at": ts,
-        })
-    return result
+        }
+        for idx, c in counters.items()
+    ]
 
 
 async def collect_lldp_neighbors(
@@ -329,12 +310,11 @@ async def collect_lldp_neighbors(
     port: int = None,
 ) -> List[Dict[str, Any]]:
     """Coleta vizinhos LLDP para descoberta de topologia."""
-    neighbors = {}
+    neighbors: Dict[str, Dict] = {}
 
     for oid_name in ["lldpRemSysName", "lldpRemPortId", "lldpRemPortDesc"]:
         walked = await snmp_walk(host, OIDS[oid_name], community=community, port=port)
         for oid_str, val in walked.items():
-            # OID format: base.timeFilter.localPortNum.remoteIndex
             parts = oid_str.split(".")
             if len(parts) >= 3:
                 local_port = parts[-2]

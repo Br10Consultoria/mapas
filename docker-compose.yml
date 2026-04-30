@@ -45,8 +45,8 @@ services:
       retries: 5
 
   # ── Backend (FastAPI) ───────────────────────────────────────────────────────
-  # NOTA: usa network_mode host para alcançar dispositivos SNMP na rede local.
-  # Por isso, os outros serviços se comunicam com o backend via 127.0.0.1.
+  # network_mode: host é necessário para SNMP/ICMP alcançar dispositivos reais.
+  # O backend se conecta ao postgres e influxdb via 127.0.0.1 (portas expostas).
   backend:
     build:
       context: ./backend
@@ -72,11 +72,11 @@ services:
         condition: service_healthy
       influxdb:
         condition: service_healthy
-    # network_mode host é necessário para SNMP/ICMP alcançar dispositivos reais
     network_mode: host
 
   # ── Frontend (React + Nginx) ────────────────────────────────────────────────
-  # O Nginx faz proxy para o backend via 127.0.0.1 (host network do backend)
+  # O Nginx faz proxy para o backend via 172.17.0.1 (gateway Docker bridge).
+  # Usa resolver dinâmico para não falhar na inicialização.
   frontend:
     build:
       context: ./frontend
@@ -87,8 +87,6 @@ services:
       - "80:80"
     networks:
       - netmap
-    extra_hosts:
-      - "backend:host-gateway"
     depends_on:
       - backend
 

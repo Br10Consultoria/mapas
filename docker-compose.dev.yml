@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Modo desenvolvimento: backend e frontend com hot reload
 # Uso: docker compose -f docker-compose.dev.yml up
 

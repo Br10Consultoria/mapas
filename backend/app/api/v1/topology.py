@@ -7,9 +7,14 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.topology import Device, Interface, Link
 
-router = APIRouter(prefix="/topology", tags=["Topology"])
+router = APIRouter(
+    prefix="/topology",
+    tags=["Topology"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

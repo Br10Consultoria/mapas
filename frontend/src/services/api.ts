@@ -6,6 +6,15 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// Injeta o token JWT em todas as requisições automaticamente
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('netmap_access_token')
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`
+  }
+  return config
+})
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type DeviceType = 'router' | 'switch' | 'firewall' | 'server' | 'unknown'

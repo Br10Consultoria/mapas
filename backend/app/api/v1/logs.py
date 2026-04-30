@@ -10,11 +10,16 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.log import LogLevel, LogCategory
+from app.models.user import User
 from app.services.log_service import get_logs, clear_logs, add_log
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["Logs & Diagnostics"])
+router = APIRouter(
+    tags=["Logs & Diagnostics"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

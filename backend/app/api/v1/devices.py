@@ -10,9 +10,15 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.topology import Device, Interface, DeviceType, DeviceVendor, DeviceStatus
+from app.models.user import User
 
-router = APIRouter(prefix="/devices", tags=["Devices"])
+router = APIRouter(
+    prefix="/devices",
+    tags=["Devices"],
+    dependencies=[Depends(get_current_user)],
+)
 
 UPLOAD_DIR = "/app/uploads/devices"
 os.makedirs(UPLOAD_DIR, exist_ok=True)

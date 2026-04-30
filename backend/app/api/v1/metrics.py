@@ -6,9 +6,11 @@ import json
 import logging
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, get_db
+from app.core.security import get_current_user
 from app.models.topology import Device, DeviceStatus
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/metrics", tags=["Metrics"])
 logger = logging.getLogger(__name__)

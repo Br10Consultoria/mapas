@@ -44,9 +44,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: netmap-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save ""
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - netmap
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Backend (FastAPI) ───────────────────────────────────────────────────────
   # network_mode: host é necessário para SNMP/ICMP alcançar dispositivos reais.
-  # O backend se conecta ao postgres e influxdb via 127.0.0.1 (portas expostas).
+  # O backend se conecta ao postgres, influxdb e redis via 127.0.0.1 (portas expostas).
   backend:
     build:
       context: ./backend
@@ -54,29 +70,48 @@ services:
     container_name: netmap-backend
     restart: unless-stopped
     environment:
+      # Banco de dados
       POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: 5432
       POSTGRES_USER: netmap
       POSTGRES_PASSWORD: netmap123
       POSTGRES_DB: netmap
+      # InfluxDB
       INFLUXDB_URL: http://127.0.0.1:8086
       INFLUXDB_TOKEN: netmap-super-secret-token
       INFLUXDB_ORG: netmap
       INFLUXDB_BUCKET: network_metrics
+      INFLUXDB_RETENTION_DAYS: "7"
+      # Redis
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      REDIS_DB: "0"
+      # JWT e segurança — ALTERE EM PRODUÇÃO
+      JWT_SECRET_KEY: "ALTERE_ESTA_CHAVE_EM_PRODUCAO_USE_UMA_STRING_LONGA_E_ALEATORIA"
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: "30"
+      # Admin padrão (criado na primeira execução)
+      DEFAULT_ADMIN_USERNAME: "admin"
+      DEFAULT_ADMIN_PASSWORD: "netmap@2024"
+      DEFAULT_ADMIN_EMAIL: "admin@netmap.local"
+      # Polling
       DEBUG: "false"
       POLL_INTERVAL_STATUS: "30"
       POLL_INTERVAL_INTERFACES: "60"
       POLL_INTERVAL_DISCOVERY: "300"
+      # Retenção de logs
+      LOG_RETENTION_DAYS: "7"
+      LOG_CLEANUP_INTERVAL_HOURS: "6"
     depends_on:
       postgres:
         condition: service_healthy
       influxdb:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     network_mode: host
 
   # ── Frontend (React + Nginx) ────────────────────────────────────────────────
-  # O Nginx faz proxy para o backend via 172.17.0.1 (gateway Docker bridge).
-  # Usa resolver dinâmico para não falhar na inicialização.
   frontend:
     build:
       context: ./frontend

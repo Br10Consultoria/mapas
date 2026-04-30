@@ -142,4 +142,41 @@ export const metricsApi = {
     api.get<InterfaceMetrics>(`/metrics/interface/${deviceId}/${ifIndex}?hours=${hours}`).then(r => r.data),
 }
 
+// ── Log types ─────────────────────────────────────────────────────────────
+
+export type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'success'
+export type LogCategory = 'snmp' | 'ping' | 'topology' | 'system' | 'api' | 'poller'
+
+export interface EventLog {
+  id: number
+  level: LogLevel
+  category: LogCategory
+  device_id?: number
+  device_name?: string
+  message: string
+  detail?: string
+  created_at: string
+}
+
+export interface PingResult {
+  host: string
+  reachable: boolean
+  avg_ms?: number
+  min_ms?: number
+  max_ms?: number
+  packet_loss: number
+  output: string
+}
+
+export const logsApi = {
+  list: (params?: { level?: string; category?: string; device_id?: number; limit?: number }) =>
+    api.get<EventLog[]>('/logs', { params }).then(r => r.data),
+  clear: () => api.delete('/logs'),
+}
+
+export const diagnosticsApi = {
+  ping: (host: string, count = 4) =>
+    api.post<PingResult>(`/diagnostics/ping?host=${encodeURIComponent(host)}&count=${count}`).then(r => r.data),
+}
+
 export default api

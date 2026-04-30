@@ -120,8 +120,11 @@ async def create_device(payload: DeviceCreate, db: AsyncSession = Depends(get_db
     device = Device(**payload.model_dump())
     db.add(device)
     await db.commit()
-    await db.refresh(device)
-    return device
+    # Re-query with interfaces loaded
+    result2 = await db.execute(
+        select(Device).options(selectinload(Device.interfaces)).where(Device.id == device.id)
+    )
+    return result2.scalar_one()
 
 
 @router.get("/{device_id}", response_model=DeviceOut)
@@ -146,8 +149,10 @@ async def update_device(device_id: int, payload: DeviceUpdate, db: AsyncSession 
     for key, val in payload.model_dump(exclude_none=True).items():
         setattr(device, key, val)
     await db.commit()
-    await db.refresh(device)
-    return device
+    result2 = await db.execute(
+        select(Device).options(selectinload(Device.interfaces)).where(Device.id == device_id)
+    )
+    return result2.scalar_one()
 
 
 @router.patch("/{device_id}/position", response_model=DeviceOut)
@@ -159,8 +164,10 @@ async def update_device_position(device_id: int, payload: DevicePositionUpdate, 
     device.pos_x = payload.pos_x
     device.pos_y = payload.pos_y
     await db.commit()
-    await db.refresh(device)
-    return device
+    result2 = await db.execute(
+        select(Device).options(selectinload(Device.interfaces)).where(Device.id == device_id)
+    )
+    return result2.scalar_one()
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -9,7 +9,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api.v1 import devices, topology, metrics
+from app.api.v1 import devices, topology, metrics, logs
+from app.models import log as _log_model  # noqa: ensure table is created
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,6 +85,7 @@ app.add_middleware(
 app.include_router(devices.router, prefix="/api/v1")
 app.include_router(topology.router, prefix="/api/v1")
 app.include_router(metrics.router, prefix="/api/v1")
+app.include_router(logs.router, prefix="/api/v1")
 
 
 @app.get("/health")

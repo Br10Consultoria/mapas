@@ -1,18 +1,36 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Network, Server, Wifi, WifiOff, Activity
+  LayoutDashboard, Network, Server, Wifi, WifiOff, Activity,
+  ScrollText, AlertCircle
 } from 'lucide-react'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+import { logsApi } from '../../services/api'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/topology',  icon: Network,          label: 'Mapa de Rede' },
   { to: '/devices',   icon: Server,            label: 'Dispositivos' },
+  { to: '/logs',      icon: ScrollText,        label: 'Logs & Diagnóstico' },
 ]
 
 export default function Layout() {
   const { connected } = useWebSocket()
+  const [errorCount, setErrorCount] = useState(0)
+
+  // Poll error count every 10s for badge
+  useEffect(() => {
+    const fetch = async () => {
+      try {
+        const logs = await logsApi.list({ level: 'error', limit: 100 })
+        setErrorCount(logs.length)
+      } catch { /* silent */ }
+    }
+    fetch()
+    const t = setInterval(fetch, 10000)
+    return () => clearInterval(t)
+  }, [])
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -45,7 +63,13 @@ export default function Layout() {
               }
             >
               <Icon size={18} />
-              {label}
+              <span className="flex-1">{label}</span>
+              {to === '/logs' && errorCount > 0 && (
+                <span className="flex items-center gap-0.5 bg-red-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 min-w-[20px] justify-center">
+                  <AlertCircle size={10} />
+                  {errorCount > 99 ? '99+' : errorCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -82,7 +106,7 @@ export default function Layout() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
       </div>

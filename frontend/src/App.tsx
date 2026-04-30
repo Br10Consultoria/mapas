@@ -3,6 +3,7 @@ import Layout from './components/layout/Layout'
 import DashboardPage from './pages/DashboardPage'
 import TopologyPage from './pages/TopologyPage'
 import DevicesPage from './pages/DevicesPage'
+import LogsPage from './pages/LogsPage'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="topology" element={<TopologyPage />} />
           <Route path="devices" element={<DevicesPage />} />
+          <Route path="logs" element={<LogsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

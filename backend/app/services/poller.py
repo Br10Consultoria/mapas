@@ -10,11 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 from influxdb_client import Point
-from influxdb_client.client.write_api import SYNCHRONOUS
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.topology import Device, Interface, Link, DeviceStatus
+from app.models.log import LogLevel, LogCategory
 from app.collectors.snmp_collector import (
     collect_system_info,
     collect_interfaces,
@@ -26,13 +26,15 @@ from app.collectors.snmp_collector import (
 logger = logging.getLogger(__name__)
 
 
-async def get_influx_write_api():
-    client = InfluxDBClientAsync(
-        url=settings.INFLUXDB_URL,
-        token=settings.INFLUXDB_TOKEN,
-        org=settings.INFLUXDB_ORG,
-    )
-    return client
+async def _log(session: AsyncSession, message: str, level=LogLevel.INFO,
+               category=LogCategory.POLLER, device_id=None, device_name=None, detail=None):
+    """Persiste log no banco sem importação circular."""
+    from app.services.log_service import add_log
+    try:
+        await add_log(session, message, level=level, category=category,
+                      device_id=device_id, device_name=device_name, detail=detail)
+    except Exception as e:
+        logger.warning(f"Could not persist log: {e}")
 
 
 async def poll_device_status(device: Device) -> DeviceStatus:
@@ -72,9 +74,24 @@ async def poll_all_devices():
                     )
                 )
                 await session.commit()
-            logger.info(f"Device {device.hostname} ({device.ip_address}): {status}")
+
+                # Log status change
+                if status == DeviceStatus.UP:
+                    level, msg = LogLevel.SUCCESS, f"Dispositivo ONLINE - SNMP respondendo"
+                elif status == DeviceStatus.DEGRADED:
+                    level, msg = LogLevel.WARNING, f"Dispositivo DEGRADADO - ping OK mas SNMP falhou"
+                else:
+                    level, msg = LogLevel.ERROR, f"Dispositivo OFFLINE - sem resposta ao ping"
+
+                await _log(session, msg, level=level, category=LogCategory.PING,
+                           device_id=device.id, device_name=device.name)
+
+            logger.info(f"Device {device.name} ({device.ip_address}): {status}")
         except Exception as e:
-            logger.error(f"Error polling device {device.hostname}: {e}")
+            logger.error(f"Error polling device {device.name}: {e}")
+            async with AsyncSessionLocal() as session:
+                await _log(session, f"Erro no polling: {e}", level=LogLevel.ERROR,
+                           category=LogCategory.POLLER, device_id=device.id, device_name=device.name)
 
 
 async def poll_interfaces(device: Device, session: AsyncSession):
@@ -101,9 +118,17 @@ async def poll_interfaces(device: Device, session: AsyncSession):
                 new_iface = Interface(device_id=device.id, **iface_data)
                 session.add(new_iface)
         await session.commit()
-        logger.info(f"Updated {len(interfaces)} interfaces for {device.hostname}")
+
+        await _log(session,
+                   f"SNMP: {len(interfaces)} interfaces coletadas com sucesso",
+                   level=LogLevel.SUCCESS, category=LogCategory.SNMP,
+                   device_id=device.id, device_name=device.name)
+        logger.info(f"Updated {len(interfaces)} interfaces for {device.name}")
     except Exception as e:
-        logger.error(f"Error polling interfaces for {device.hostname}: {e}")
+        logger.error(f"Error polling interfaces for {device.name}: {e}")
+        await _log(session, f"SNMP erro ao coletar interfaces: {e}",
+                   level=LogLevel.ERROR, category=LogCategory.SNMP,
+                   device_id=device.id, device_name=device.name, detail=str(e))
 
 
 async def poll_interface_metrics():
@@ -150,9 +175,19 @@ async def poll_interface_metrics():
                     bucket=settings.INFLUXDB_BUCKET,
                     record=points,
                 )
-            logger.info(f"Wrote {len(points)} interface metrics for {device.hostname}")
+
+            async with AsyncSessionLocal() as session:
+                await _log(session,
+                           f"InfluxDB: {len(points)} métricas de interface gravadas",
+                           level=LogLevel.INFO, category=LogCategory.SNMP,
+                           device_id=device.id, device_name=device.name)
+            logger.info(f"Wrote {len(points)} interface metrics for {device.name}")
         except Exception as e:
-            logger.error(f"Error collecting metrics for {device.hostname}: {e}")
+            logger.error(f"Error collecting metrics for {device.name}: {e}")
+            async with AsyncSessionLocal() as session:
+                await _log(session, f"Erro ao gravar métricas: {e}",
+                           level=LogLevel.ERROR, category=LogCategory.SNMP,
+                           device_id=device.id, device_name=device.name)
 
     await influx_client.close()
 
@@ -168,8 +203,6 @@ async def discover_topology():
         )
         devices = result.scalars().all()
 
-        # Build IP lookup
-        ip_map = {d.ip_address: d for d in devices}
         hostname_map = {d.hostname.lower(): d for d in devices}
 
         for device in devices:
@@ -179,13 +212,13 @@ async def discover_topology():
                     community=device.snmp_community,
                     port=device.snmp_port,
                 )
+                new_links = 0
                 for neighbor in neighbors:
                     remote_name = (neighbor.get("lldpRemSysName") or "").lower()
                     remote_device = hostname_map.get(remote_name)
                     if not remote_device:
                         continue
 
-                    # Find local interface
                     local_if_result = await session.execute(
                         select(Interface).where(
                             Interface.device_id == device.id,
@@ -194,7 +227,6 @@ async def discover_topology():
                     )
                     local_if = local_if_result.scalar_one_or_none()
 
-                    # Check if link already exists
                     existing_link = await session.execute(
                         select(Link).where(
                             Link.source_device_id == device.id,
@@ -209,8 +241,17 @@ async def discover_topology():
                             discovered_via="lldp",
                         )
                         session.add(link)
+                        new_links += 1
 
                 await session.commit()
-                logger.info(f"LLDP discovery for {device.hostname}: {len(neighbors)} neighbors found")
+
+                msg = f"LLDP: {len(neighbors)} vizinhos encontrados, {new_links} novos links"
+                level = LogLevel.SUCCESS if neighbors else LogLevel.INFO
+                await _log(session, msg, level=level, category=LogCategory.TOPOLOGY,
+                           device_id=device.id, device_name=device.name)
+                logger.info(f"LLDP discovery for {device.name}: {len(neighbors)} neighbors")
             except Exception as e:
-                logger.error(f"Error in LLDP discovery for {device.hostname}: {e}")
+                logger.error(f"Error in LLDP discovery for {device.name}: {e}")
+                await _log(session, f"Erro na descoberta LLDP: {e}",
+                           level=LogLevel.ERROR, category=LogCategory.TOPOLOGY,
+                           device_id=device.id, device_name=device.name)
